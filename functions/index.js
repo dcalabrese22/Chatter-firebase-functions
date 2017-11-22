@@ -9,6 +9,7 @@ exports.sendNewMessageNotification = functions.database
         let userId = event.params.userId;
         let conversation = event.data.val();
         let lastMessageType = conversation.lastMessageType;
+        let id = conversation.conversationId;
         let sender = conversation.user1;
         let sr1 = 'New message from ';
         let notificationTitle = sr1.concat(sender);
@@ -16,7 +17,8 @@ exports.sendNewMessageNotification = functions.database
         let payload = {
             notification: {
                 title: notificationTitle,
-                body: notificationBody
+                body: notificationBody,
+                id: id
             }
         };
         let tokenStrings = [];
@@ -26,9 +28,14 @@ exports.sendNewMessageNotification = functions.database
             return admin.database().ref(dbRefString).once('value', snapshot => {
                 snapshot.forEach(child => {
                     tokenStrings.push(child.key);
-                    console.log(child.key);
-                    admin.messaging().sendToDevice(child.key, payload);
                 });
+                console.log(tokenStrings);
+                admin.messaging().sendToDevice(tokenStrings, payload).then(response => {
+                    console.log("successfully sent ", payload, ": ", response);
+                })
+                    .catch(error => {
+                        console.log("error sending message: ", error);
+                    })
             });
         } else {
             return 0;
