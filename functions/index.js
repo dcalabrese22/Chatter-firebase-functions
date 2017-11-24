@@ -4,40 +4,50 @@ const functions = require('firebase-functions');
 admin.initializeApp(functions.config().firebase);
 
 exports.sendNewMessageNotification = functions.database
-    .ref('conversations/{userId}/{conversationId}')
+    .ref('Notifications/{conversationId}/{pushId}')
     .onWrite(event => {
-        let userId = event.params.userId;
-        let conversation = event.data.val();
-        let lastMessageType = conversation.lastMessageType;
-        let id = conversation.conversationId;
-        let sender = conversation.user1;
+        console.log("starting send new message notification");
+        let conversationId = event.params.conversationId;
+        let pushId = event.params.pushId;
+        let notificationData = event.data.val();
+        let userId = notificationData.sentTo;
+        let sender = notificationData.from;
+        let body = notificationData.body;
+
         let sr1 = 'New message from ';
         let notificationTitle = sr1.concat(sender);
-        let notificationBody = conversation.lastMessage;
         let payload = {
             notification: {
                 title: notificationTitle,
-                body: notificationBody,
-                id: id
+                body: body,
+                id: conversationId
             }
         };
-        let tokenStrings = [];
-        let dbRefString = '/RefreshTokens/'.concat(userId);
-        console.log(dbRefString);
-        if (lastMessageType === "received") {
-            return admin.database().ref(dbRefString).once('value', snapshot => {
-                snapshot.forEach(child => {
-                    tokenStrings.push(child.key);
-                });
-                console.log(tokenStrings);
-                admin.messaging().sendToDevice(tokenStrings, payload).then(response => {
-                    console.log("successfully sent ", payload, ": ", response);
-                })
-                    .catch(error => {
-                        console.log("error sending message: ", error);
-                    })
+        let tokensArray = [];
+        console.log(userId, payload);
+        let getTokensArray = admin.database().ref('RefreshTokens').child(userId).once('value').then(snapshot => {
+            snapshot.forEach(child => {
+                tokensArray.push(child.key);
             });
-        } else {
-            return 0;
-        }
+            return Promise.all(tokensArray);
+        });
+
+        console.log(tokensArray);
+        return admin.messaging().sendToDevice(tokensArray, payload).then(response => {
+            response.results.forEach((result, index) => {
+                const error = result.error;
+                let tokensToRemove = [];
+                if (error) {
+                    console.error('Failure sending notification to ', tokensArray[index], error);
+
+                    if (error.code === 'messaging/invalid-registration-token' ||
+                    error.code === 'messaging/registration-token-not-registered') {
+                        tokensToRemove.push(admin.database().ref('RefreshToken').child(userId)
+                            .child(tokensArray[index]).remove());
+                    }
+                }
+                return Promise.all(tokensToRemove)
+            });
+        })
+
     });
